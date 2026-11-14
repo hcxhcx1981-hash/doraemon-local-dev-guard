@@ -28,6 +28,48 @@ import sys
 # Only run version probes for caller-supplied "tool --version" style commands.
 _SAFE_VERSION_CMD = re.compile(r"^[A-Za-z0-9_.-]+\s+--version\s*$")
 
+_FORBIDDEN_WINDOWS_CHARS = set('<>:"/\\|?*')
+_WINDOWS_RESERVED = ({"CON", "PRN", "AUX", "NUL"}
+                    | {f"COM{i}" for i in range(1, 10)}
+                    | {f"LPT{i}" for i in range(1, 10)})
+
+
+def _validate_project_name(name, is_windows):
+    """Return (cleaned_name, None) or (None, error_reason)."""
+    if not isinstance(name, str):
+        return None, "project_name must be a string"
+    cleaned = name.strip()
+    if not cleaned:
+        return None, "project_name is required (non-whitespace)"
+    if cleaned in (".", ".."):
+        return None, "'.' and '..' are reserved path entries"
+    if ".." in cleaned:
+        return None, "path traversal ('..') is not allowed in project_name"
+    if "/" in cleaned or "\\" in cleaned:
+        return None, "directory separators are not allowed in project_name"
+    if is_windows:
+        if re.match(r"^[A-Za-z]:", cleaned):
+            return None, "absolute (drive) path is not allowed in project_name"
+        bad = sorted(c for c in cleaned if c in _FORBIDDEN_WINDOWS_CHARS)
+        if bad:
+            return None, "Windows-illegal character(s) %s in project_name" % bad
+        if cleaned.split(".")[0].upper() in _WINDOWS_RESERVED:
+            return None, "Windows reserved device name is not allowed"
+    return cleaned, None
+
+
+def verify_existing(path, *, checked=True):
+    """Read-only existence/type check; never claims verified without evidence."""
+    if not checked:
+        return {"verified": False, "verification": "NOT_CHECKED"}
+    if not isinstance(path, str) or not path.strip():
+        return {"verified": False, "verification": "NOT_CHECKED"}
+    if not os.path.exists(path):
+        return {"verified": False, "verification": "MISSING"}
+    if not os.path.isdir(path):
+        return {"verified": False, "verification": "NOT_A_DIRECTORY"}
+    return {"verified": True, "verification": "VERIFIED_DIRECTORY"}
+
 
 def probe_drives() -> dict:
     """Map available drives (Windows) or the POSIX data dir to their status."""
@@ -59,14 +101,24 @@ def recommend_path(project_name, *, existing_project_path=None, drives=None,
                    min_free_bytes=1_000_000_000, data_dir=None) -> dict:
     """Pick a project location. Existing projects are never migrated."""
     if existing_project_path:
-        return {
+        verification = verify_existing(existing_project_path)
+        rec = {
             "status": "USE_EXISTING",
             "path": existing_project_path,
             "reason": "existing project kept in place; no migration performed",
             "auto_fallback": False,
         }
-    if not project_name:
-        return {"status": "INVALID", "reason": "project_name is required"}
+        if not verification["verified"]:
+            rec["reason"] = ("existing project kept in place; "
+                              "existence NOT verified (%s)"
+                              % verification["verification"].lower())
+        rec["existence_verified"] = verification["verified"]
+        rec["existence_verification"] = verification["verification"]
+        return rec
+
+    name, err = _validate_project_name(project_name, is_windows)
+    if err:
+        return {"status": "INVALID", "reason": err}
 
     if is_windows:
         d = (drives or {}).get("D")
@@ -84,7 +136,7 @@ def recommend_path(project_name, *, existing_project_path=None, drives=None,
                             True)
         return {
             "status": "RECOMMEND",
-            "path": "D:\\" + projects_root + "\\" + project_name,
+            "path": "D:\\" + projects_root + "\\" + name,
             "reason": "prefer D drive for new projects",
             "auto_fallback": False,
         }
@@ -96,7 +148,7 @@ def recommend_path(project_name, *, existing_project_path=None, drives=None,
         return _blocked("DATA_DIR_NOT_WRITABLE", "Data directory is not writable", False)
     return {
         "status": "RECOMMEND",
-        "path": posixpath.join(dd, project_name),
+        "path": posixpath.join(dd, name),
         "reason": "use the actual writable data directory on POSIX",
         "auto_fallback": False,
     }
@@ -233,7 +285,7 @@ def run(payload: dict) -> dict:
         "path": rec,
         "risks": detect_risks(risk_state),
         "guard": "doraemon-local-dev-guard",
-        "version": "2.0.0",
+        "version": "2.0.1",
     }
 
 

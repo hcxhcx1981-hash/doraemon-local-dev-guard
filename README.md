@@ -1,4 +1,4 @@
-# Doraemon Local Dev Guard（V2）
+# Doraemon Local Dev Guard（V2，版本 2.0.1）
 
 本地开发任务的**前置守卫**：轻量环境审计、智能路径发现、多 Agent 适配、最小风险预检。
 默认**只读**——零网络、零模型调用、零环境修改，不安装依赖（仅 Python 3 标准库）。
@@ -47,6 +47,9 @@ print(json.dumps(g.run({'project_name':'myapp','required_tools':['git']}),indent
   - 无 D 盘 / D 不可写 / 空间不足 → 报告 `BLOCKED`，**不自动退回 C 盘**，须用户明确授权。
 - **新建项目（macOS/Linux）**：使用实际可写数据目录（如 `$HOME`）。
 - Agent 系统配置（skills / plugins 等）遵循各 Agent 官方目录要求，本 Skill 不擅改。
+- **输入校验（V2.0.1）**：`project_name` 拒绝空白、`.`/`..`、路径穿越、目录分隔符、
+  绝对路径及 Windows 非法字符 / 保留设备名；`existing_project_path` 只读核验存在性与
+  目录类型，无法确认时输出 `existence_verified: false`，绝不宣称已验证存在。
 
 ## 多 Agent 适配与已验证状态
 

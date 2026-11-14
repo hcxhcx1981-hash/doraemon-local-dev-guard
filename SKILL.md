@@ -1,7 +1,7 @@
 ---
 name: doraemon-local-dev-guard
 description: 本地开发环境守卫：轻量环境审计、智能路径发现、多 Agent 适配与最小风险预检。只读、零网络、不修改环境。不负责任务执行、调度与业务验收（归 doraemon-goal-driven-delivery）。
-version: 2.0.0
+version: 2.0.1
 ---
 
 # Doraemon Local Dev Guard (V2)
@@ -40,6 +40,9 @@ version: 2.0.0
    - 无 D 盘 / D 不可写 / 空间不足 → 报告 `BLOCKED`，**不自动退回 C 盘**，等用户授权。
 3. **新建项目（macOS/Linux）**：使用实际可写数据目录（如 `~/` 或用户数据目录）。
 4. Agent 系统配置（skills/plugins 等）遵循各 Agent 官方目录，不擅改。
+5. **输入校验**：`project_name` 拒绝空白、`.`/`..`、路径穿越、目录分隔符、绝对路径及
+   Windows 非法字符/保留设备名；`existing_project_path` 只读核验存在性与目录类型，
+   无法确认时输出 `existence_verified: false`，绝不宣称已验证存在。
 
 > 边界澄清：本节“路径策略”指**放置决策**（新项目放哪、旧项目动不动、阻断条件）。
 > “搜索实际路径”（未提供精确路径时如何找到目标文件）属于

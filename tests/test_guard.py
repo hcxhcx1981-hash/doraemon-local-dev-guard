@@ -128,6 +128,87 @@ class E_DirtyWorkspaceNeverOverwritten(unittest.TestCase):
         self.assertTrue(all(r["auto_fix_allowed"] is False for r in risks))
 
 
+class G_PathSafety(unittest.TestCase):
+    """G. project_name / existing_project_path security validation (V2.0.1)."""
+
+    D = {"D": {"exists": True, "writable": True,
+               "free_bytes": 50 * 1024**3, "root": "D:\\"}}
+
+    # --- project_name: absolute / traversal / separators ---
+    def test_traversal_rejected(self):
+        for bad in ("..", "a/..", "a\\..", "../etc", "..\\win"):
+            rec = g.recommend_path(bad, drives=self.D, is_windows=True)
+            self.assertEqual(rec["status"], "INVALID", bad)
+
+    def test_absolute_drive_rejected(self):
+        for bad in ("C:\\x", "D:\\x", "C:x"):
+            rec = g.recommend_path(bad, drives=self.D, is_windows=True)
+            self.assertEqual(rec["status"], "INVALID", bad)
+
+    def test_separators_rejected(self):
+        for bad in ("a/b", "a\\b"):
+            rec = g.recommend_path(bad, drives=self.D, is_windows=True)
+            self.assertEqual(rec["status"], "INVALID", bad)
+
+    def test_whitespace_and_dots_rejected(self):
+        for bad in ("", "   ", ".", "..", "  "):
+            rec = g.recommend_path(bad, drives=self.D, is_windows=True)
+            self.assertEqual(rec["status"], "INVALID", repr(bad))
+
+    # --- project_name: Windows-illegal characters & reserved names ---
+    def test_windows_illegal_chars_rejected(self):
+        for bad in ('a:b', 'a<b', 'a>c', 'a"d', "a/e", 'a|f', 'a?g', "a*h"):
+            rec = g.recommend_path(bad, drives=self.D, is_windows=True)
+            self.assertEqual(rec["status"], "INVALID", bad)
+
+    def test_windows_reserved_names_rejected(self):
+        for bad in ("CON", "NUL", "com1", "COM9", "LPT1", "aux"):
+            rec = g.recommend_path(bad, drives=self.D, is_windows=True)
+            self.assertEqual(rec["status"], "INVALID", bad)
+
+    def test_valid_name_still_works(self):
+        rec = g.recommend_path("my-app", drives=self.D, is_windows=True)
+        self.assertEqual(rec["status"], "RECOMMEND")
+        self.assertEqual(rec["path"], "D:\\Projects\\my-app")
+
+    def test_whitespace_name_is_trimmed(self):
+        rec = g.recommend_path("  myapp  ", drives=self.D, is_windows=True)
+        self.assertEqual(rec["status"], "RECOMMEND")
+        self.assertEqual(rec["path"], "D:\\Projects\\myapp")
+
+    # --- existing_project_path: existence & directory-type, no false claims ---
+    def test_existing_verified_directory(self):
+        import tempfile
+        d = g.recommend_path("", existing_project_path=tempfile.gettempdir())
+        self.assertEqual(d["status"], "USE_EXISTING")
+        self.assertTrue(d["existence_verified"])
+        self.assertEqual(d["existence_verification"], "VERIFIED_DIRECTORY")
+
+    def test_existing_missing_is_not_claimed_verified(self):
+        d = g.recommend_path("", existing_project_path=r"C:\Users\example\gone")
+        self.assertEqual(d["status"], "USE_EXISTING")
+        self.assertFalse(d["existence_verified"])
+        self.assertEqual(d["existence_verification"], "MISSING")
+        self.assertIn("NOT verified", d["reason"])
+
+    def test_existing_file_is_not_a_directory(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            fname = f.name
+        try:
+            d = g.recommend_path("", existing_project_path=fname)
+            self.assertEqual(d["status"], "USE_EXISTING")
+            self.assertFalse(d["existence_verified"])
+            self.assertEqual(d["existence_verification"], "NOT_A_DIRECTORY")
+        finally:
+            os.unlink(fname)
+
+    def test_unchecked_existing_never_claims_verified(self):
+        v = g.verify_existing(r"C:\x", checked=False)
+        self.assertFalse(v["verified"])
+        self.assertEqual(v["verification"], "NOT_CHECKED")
+
+
 class F_ResponsibilityBoundary(unittest.TestCase):
     """F. Guard has no delivery / retry / acceptance machinery."""
 
