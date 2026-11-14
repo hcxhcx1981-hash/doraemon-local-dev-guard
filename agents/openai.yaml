@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doraemon Local Dev Guard"
+  short_description: "Read-only local dev guard: env audit, path strategy, risk pre-check"
+  default_prompt: "Use $doraemon-local-dev-guard to pre-flight this local development task: audit the environment, recommend a project path, and list minimal risks. Read-only; do not fix anything."
