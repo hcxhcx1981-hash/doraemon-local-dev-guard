@@ -29,11 +29,11 @@
 
 | 场景 | 没有它时 | 有了它之后 |
 |---|---|---|
-| AI 找不到项目目录 | 反复试错、猜路径，甚至改错地方 | 一开始就给出路径结论（USE_EXISTING / RECOMMEND / BLOCKED） |
+| 项目路径是否真实存在不确定 | AI 反复试错、猜路径，甚至改错地方 | 预检对**你给出的**路径如实标注 `existence_verified: true/false`，不猜、不迁移 |
 | 依赖或工具版本不对 | 写到一半才报错，来回折腾 | 预检直接列出缺什么 |
 | 新项目建错位置 | 建进 C 盘深处、权限不够的目录 | 建议明确的落点（如 `D:\Projects\<项目名>`） |
 | 原项目有未提交代码 | AI 不知道，可能覆盖你的工作 | 报告 `UNCOMMITTED_CHANGES` 风险，提醒先处理 |
-| AI 未检查环境就开始开发 | 环境不匹配时浪费大量来回 | 开工前 10 秒拿到审计报告 + 风险清单 |
+| AI 未检查环境就开始开发 | 环境不匹配时浪费大量来回 | 开工前拿到一份审计报告 + 风险清单，再开始写代码 |
 
 它回答的只有三个问题，然后**立即交棒**给 AI 继续开发：
 
@@ -44,10 +44,10 @@
 ## 它能做什么？
 
 1. **看一眼你的电脑环境**：什么系统、什么架构、当前目录可不可写、你指定的必需工具（git、node、python…）装没装。
-2. **判断项目该放哪**：已有项目原地不动；Windows 上建议 D 盘；D 盘不可用就明确阻断，不偷偷退回 C 盘。
+2. **判断项目该放哪**：已有项目原地不动（你给什么路径就用什么路径，只核验、不迁移）；Windows 上新项目建议 D 盘；D 盘不可用就明确阻断，不偷偷退回 C 盘。
 3. **挑出开工前的风险**：路径冲突、目录不可写、工具/版本不符、依赖缺失、有未提交的代码——只报告，不擅自修。
 4. **守住输入底线**：拒绝非法项目名（路径穿越、Windows 保留名如 `CON`/`NUL` 等），不存在的已有路径**绝不谎称已验证**。
-5. **输出一份纯 JSON 报告**：机器可读、可复核，用户名默认脱敏为 `<user>`，你的隐私不会出现在结果里。
+5. **输出一份纯 JSON 报告**：机器可读、可复核。**默认只脱敏用户名**（显示为 `<user>`）；报告中的本地路径（如当前工作目录、建议路径）会如实出现，保存或分享前请自行留意。
 
 ## 工作原理
 
@@ -69,61 +69,85 @@
 
 先分清三个概念（本仓库的诚实原则）：
 
-- **已安装**：文件放在该工具约定的 Skill 目录里；
-- **已加载**：工具确认能按机制读取到它；
-- **行为已验证**：真实跑过，输出符合预期。
-- 无法实测的一律标 **UNVERIFIED**，不编造兼容性。
+- **已安装**：Skill 文件完整放在该工具约定的目录里；
+- **已加载**：宿主工具在实际会话中读取并识别了它（有会话证据，不是目录里有文件就够）；
+- **行为已验证**：真实执行过、输出符合预期。
 
-| 工具 | 适配方式 | 状态 | 证据 |
-|---|---|---|---|
-| Claude Code | 原生 `SKILL.md`，部署于 user skills 目录 | 已安装、已加载；核心行为已验证 | 本机 `~/.claude/skills/doraemon-local-dev-guard/` 存在；仓库测试 26/26 通过 |
-| Codex CLI | `agents/openai.yaml` 接口声明 + 核心脚本 | 已安装、已加载；行为 UNVERIFIED | 本机 `~/.codex/skills/doraemon-local-dev-guard/` 存在；本机 codex-cli 0.159.3 可用；脚本可直接执行，但未实测其端到端加载行为 |
-| Agnes Code | 核心脚本语言无关（Python 3 标准库） | UNVERIFIED | 无本机安装，无法实测 |
-| Hermes | 同上 | UNVERIFIED | 无本机安装，无法实测 |
-| WorkBuddy | 同上 | UNVERIFIED | 无本机安装，无法实测 |
+**仓库自带的单元测试不能充当宿主"已加载"或"行为已验证"的证明**——它只验证脚本逻辑本身。
+无法实际验证的一律标 **UNVERIFIED**，不编造兼容性。
 
-> 原则：**安装 ≠ 加载 ≠ 行为验证**。上表只写有证据的内容；没有证据的，明确写 UNVERIFIED。
-> 任何能运行 Python 3 标准库脚本的 AI 工具，都可以直接调用 `scripts/local_dev_guard.py`（详见下节命令），这条路径不依赖上述加载机制。
+| 工具 | 适配方式 | 已安装 | 已加载 | 行为 | 证据 |
+|---|---|---|---|---|---|
+| Claude Code | 原生 `SKILL.md`，部署于 user skills 目录 | ✅ 本机 `~/.claude/skills/doraemon-local-dev-guard/` 文件完整 | ✅ 该 Skill 出现在 Claude Code 会话的可用技能列表中（宿主实际读取了 SKILL.md） | 核心脚本 CLI 行为已实测；**宿主按 Skill 自动调度的端到端行为 UNVERIFIED** | 本机目录 + 会话技能列表 + 真实 CLI 运行输出 |
+| Codex CLI | `agents/openai.yaml` 接口声明 + 核心脚本 | ✅ 本机 `~/.codex/skills/doraemon-local-dev-guard/` 文件完整 | **UNVERIFIED**（未观察到 Codex 会话实际加载它） | **UNVERIFIED**（本机 codex-cli 0.159.3 可用、脚本可独立执行，但未经 Codex 宿主实测） | 本机目录 + codex --version |
+| Agnes Code | 核心脚本语言无关（Python 3 标准库） | ❌ 未安装 | UNVERIFIED | UNVERIFIED | 无本机安装，无法实测 |
+| Hermes | 同上 | ❌ 未安装 | UNVERIFIED | UNVERIFIED | 无本机安装，无法实测 |
+| WorkBuddy | 同上 | ❌ 未安装 | UNVERIFIED | UNVERIFIED | 无本机安装，无法实测 |
+
+> 原则：**安装 ≠ 加载 ≠ 行为验证**，三件事各自需要各自的证据。上表只写有证据的内容，没有证据的明确写 UNVERIFIED。
+> 上表不成立也不影响使用：任何能运行 Python 3 标准库脚本的环境，都可以直接执行 `scripts/local_dev_guard.py`（见下文命令），这条路径不依赖任何宿主加载机制。
 
 ## 新手安装教程（Windows）
 
 **先决条件**：Python 3（只需标准库，不装任何第三方包）。
 
-**检查是否已装 Python**：
+**检查是否已装 Python**（PowerShell）：
 
-```bash
+```powershell
 python --version
 ```
 
-**安装步骤**（复制即用）：
+**安装步骤**（在 PowerShell 中复制即用，已实测通过）：
 
-```bash
-# 1. 把仓库克隆到一个稳定位置
+```powershell
+# 1. 把仓库克隆到一个稳定位置（在你喜欢的位置运行，例如 D:\）
 git clone https://github.com/hcxhcx1981-hash/doraemon-local-dev-guard
 
 # 2. 进入仓库目录
 cd doraemon-local-dev-guard
 
-# 3. 跑一次测试，确认环境没问题（26 个测试全部通过即 OK）
+# 3. 跑一次测试，确认环境没问题（26 项全部通过即 OK）
 python -m unittest discover -s tests
-
-# 4. 装给 Claude Code（复制进 Claude Code 的 user skills 目录）
-xcopy /E /Y /I doraemon-local-dev-guard "%USERPROFILE%\.claude\skills\doraemon-local-dev-guard"
-
-# 5. （可选）装给 Codex CLI
-xcopy /E /Y /I doraemon-local-dev-guard "%USERPROFILE%\.codex\skills\doraemon-local-dev-guard"
 ```
 
-> 不想装进 Skill 目录也可以——直接 `git clone` 后在仓库里运行第 6 节的命令即可使用。
+**装给 Claude Code**（复制进 Claude Code 的 user skills 目录；仍在仓库目录内执行，`.` 就是仓库根目录）：
 
-**macOS / Linux**：
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.claude\skills"
+xcopy /E /Y /I . "$env:USERPROFILE\.claude\skills\doraemon-local-dev-guard\"
+```
+
+**装给 Codex CLI**（同样仍在仓库目录内执行）：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills"
+xcopy /E /Y /I . "$env:USERPROFILE\.codex\skills\doraemon-local-dev-guard\"
+```
+
+**安装后检查**（以 Claude Code 目标为例，另一套把路径换成 `\.codex\`）：
+
+```powershell
+# 关键文件是否都在（两项都应输出 True）
+Test-Path "$env:USERPROFILE\.claude\skills\doraemon-local-dev-guard\SKILL.md"
+Test-Path "$env:USERPROFILE\.claude\skills\doraemon-local-dev-guard\scripts\local_dev_guard.py"
+
+# 从安装位置直接跑一次，能输出 JSON 即安装成功
+python "$env:USERPROFILE\.claude\skills\doraemon-local-dev-guard\scripts\local_dev_guard.py" --project-name demo
+```
+
+> 不想装进 Skill 目录也可以——`git clone` 后在仓库里运行下一节的命令即可使用。
+> 如果目标目录里已有旧版本，先手动删除旧的 `doraemon-local-dev-guard` 文件夹再执行 `xcopy`，避免新旧文件混杂。
+
+**macOS / Linux**（bash 或 zsh）：
 
 ```bash
 git clone https://github.com/hcxhcx1981-hash/doraemon-local-dev-guard
 cd doraemon-local-dev-guard
 python3 -m unittest discover -s tests
-# Claude Code: 把仓库复制到 ~/.claude/skills/doraemon-local-dev-guard
-# Codex CLI:   把仓库复制到 ~/.codex/skills/doraemon-local-dev-guard
+# Claude Code:
+mkdir -p ~/.claude/skills && cp -r . ~/.claude/skills/doraemon-local-dev-guard
+# Codex CLI:
+mkdir -p ~/.codex/skills && cp -r . ~/.codex/skills/doraemon-local-dev-guard
 ```
 
 脚本本身跨平台；macOS/Linux 上"新建项目"策略使用实际可写的数据目录（如 `$HOME`），而非 D 盘。
